@@ -7,11 +7,8 @@
     </el-aside>
 
     <el-container>
-      <el-header style="text-align: right; font-size: 12px">
-        <div class="toolbar">
+      <el-header style="font-size: 12px;">
           <Header />
-          <span>Tom</span>
-        </div>
       </el-header>
 
       <el-main>
@@ -34,10 +31,10 @@ defineOptions({
 
 <style scoped>
 .layout-container-demo .el-header {
-  margin: 20px;
-  position: relative;
-  background-color: var(--el-color-primary-light-7);
+  display: flex;
+  margin: 2px;
   color: var(--el-text-color-primary);
+  border-bottom:rgb(139, 135, 135) 1px solid;
 }
 .layout-container-demo .el-aside {
   margin: 20px;
@@ -48,15 +45,7 @@ defineOptions({
   border-right: none;
 }
 .layout-container-demo .el-main {
-  margin: 10px;
-  padding: 10px;
-
-}
-.layout-container-demo .toolbar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  right: 20px;
+  margin: 0px;
+  padding: 0px;
 }
 </style>
