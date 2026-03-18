@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="header-bar">
-    <div class="header-left">
-      <el-icon><More /></el-icon>
+    <div class="header-left" @click="emit('toggle-aside')">
+      <el-icon><Menu /></el-icon>
     </div>
 
     <div class="header-center">
@@ -27,7 +27,11 @@
 
 <script lang="ts" setup>
 import { Burger } from '@element-plus/icons-vue'
-import { More } from '@element-plus/icons-vue'
+import { Menu } from '@element-plus/icons-vue'
+
+const emit = defineEmits<{
+  (e: 'toggle-aside'): void
+}>()
 
 const toUser = () => {
   console.log('to user')
@@ -48,6 +52,7 @@ const toUser = () => {
   justify-self: start;
   font-size: 20px;
   line-height: 10px;
+  cursor: pointer;
 }
 
 .header-center {
