@@ -70,38 +70,39 @@
 
     <el-dialog
       v-model="centerDialogVisible"
-      title="Warning"
+      title="新增用户"
       width="500"
       align-center="true"
+      @closed="resetForm"
     >
-    <el-form :model="form" label-width="auto" style="max-width: 500px">
-      <el-form-item label="账号">
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="auto" style="max-width: 500px">
+      <el-form-item label="账号" prop="num">
         <el-col :span="20">
           <el-input v-model="form.num" />
         </el-col>
       </el-form-item>
-      <el-form-item label="密码">
+      <el-form-item label="密码" prop="password">
         <el-col :span="20">
-          <el-input v-model="form.password" />
+          <el-input v-model="form.password" type="password" show-password />
         </el-col>
       </el-form-item>
-      <el-form-item label="姓名">
+      <el-form-item label="姓名" prop="name">
         <el-col :span="20">
           <el-input v-model="form.name" />
         </el-col>
       </el-form-item>
-      <el-form-item label="年龄">
+      <el-form-item label="年龄" prop="age">
         <el-col :span="20">
           <el-input v-model="form.age" />
         </el-col>
       </el-form-item>
-      <el-form-item label="性别">
+      <el-form-item label="性别" prop="sex">
         <el-radio-group v-model="form.sex">
           <el-radio value="0">男</el-radio>
           <el-radio value="1">女</el-radio>
         </el-radio-group>
       </el-form-item>
-      <el-form-item label="电话">
+      <el-form-item label="电话" prop="phone">
         <el-col :span="20">
           <el-input v-model="form.phone" />
         </el-col>
@@ -123,8 +124,8 @@
 import axios from "axios";
 import { ElMessage } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
-import type { ComponentSize } from "element-plus";
-import { onMounted, ref } from "vue";
+import type { ComponentSize, FormInstance, FormRules } from "element-plus";
+import { nextTick, onMounted, reactive, ref } from "vue";
 
 interface UserRow {
   id: number | string;
@@ -152,7 +153,29 @@ const background = ref(false);
 const disabled = ref(false);
 
 const centerDialogVisible = ref(false);
-const form = ref({ name: "", num: "", password: "", sex: "0", age: "", phone: "", roleId: "2" });
+const formRef = ref<FormInstance>();
+
+interface RuleForm {
+  name: string;
+  num: string;
+  password: string;
+  sex: "0" | "1";
+  age: string;
+  phone: string;
+  roleId: string;
+}
+
+const createInitialForm = (): RuleForm => ({
+  name: "",
+  num: "",
+  password: "",
+  sex: "0",
+  age: "",
+  phone: "",
+  roleId: "2",
+});
+
+const form = reactive<RuleForm>(createInitialForm());
 
 const getRoleMeta = (roleId: string) => {
   if (roleId === "0") {
@@ -243,15 +266,33 @@ const handleSearch = () => {
 
 const handleAdd = () => {
   centerDialogVisible.value = true;
+  nextTick(() => {
+    resetForm();
+  });
 };
 
 onMounted(() => {
   fetchUserList();
 });
-//保存提交新增用户信息
+
+const resetForm = () => {
+  Object.assign(form, createInitialForm());
+  formRef.value?.clearValidate();
+};
+
+// 保存提交新增用户信息
 const save = async () => {
+  if (!formRef.value) return;
+
   try {
-    await axios.post("http://localhost:8090/user/save", form.value);
+    await formRef.value.validate();
+  } catch {
+    ElMessage.warning("请先完善表单信息");
+    return;
+  }
+
+  try {
+    await axios.post("http://localhost:8090/user/save", { ...form });
     ElMessage.success("新增用户成功");
     centerDialogVisible.value = false;
     fetchUserList();
@@ -260,7 +301,111 @@ const save = async () => {
     ElMessage.error("新增用户失败，请检查后端服务是否启动");
   }
 };
+
+const validateAge = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (!value) {
+    callback(new Error("请输入年龄"));
+    return;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    callback(new Error("年龄必须为整数"));
+    return;
+  }
+
+  const ageNum = Number(value);
+  if (ageNum < 1 || ageNum > 120) {
+    callback(new Error("请输入 1-120 之间的年龄"));
+    return;
+  }
+
+  callback();
+};
+
+const validateNumUnique = (
+  _rule: unknown,
+  value: string,
+  callback: (error?: Error) => void,
+) => {
+  if (!value) {
+    callback();
+    return;
+  }
+
+  // Skip remote check when format is invalid; local rules will show the message.
+  if (!/^[a-zA-Z0-9_]+$/.test(value) || value.length < 4 || value.length > 20) {
+    callback();
+    return;
+  }
+
+  const parseExistsValue = (payload: unknown): boolean => {
+    if (typeof payload === "boolean") return payload;
+    if (typeof payload === "number") return payload === 1;
+    if (typeof payload === "string") {
+      const text = payload.trim().toLowerCase();
+      if (text === "true" || text === "1") return true;
+      if (text === "false" || text === "0") return false;
+      return false;
+    }
+
+    if (payload && typeof payload === "object") {
+      const data = payload as Record<string, unknown>;
+      const candidateKeys = ["data", "result", "exists", "isExist", "isExists", "value"];
+      for (const key of candidateKeys) {
+        if (key in data) return parseExistsValue(data[key]);
+      }
+    }
+
+    return false;
+  };
+
+  axios
+    .get("http://localhost:8090/user/checknum", { params: { num: value.trim() } })
+    .then((response) => {
+      const exists = parseExistsValue(response.data);
+      if (exists) {
+        callback(new Error("账号已存在，请更换"));
+        return;
+      }
+      callback();
+    })
+    .catch((error) => {
+      console.error("校验账号是否存在失败:", error);
+      callback(new Error("账号校验失败，请稍后重试"));
+    });
+};
+
+// 表单验证规则
+const rules = reactive<FormRules<RuleForm>>({
+  name: [
+    { required: true, message: "请输入姓名", trigger: "blur" },
+    { min: 2, max: 20, message: "姓名长度应在 2-20 个字符", trigger: "blur" },
+  ],
+  password: [
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 6, max: 20, message: "密码长度应在 6-20 个字符", trigger: "blur" },
+    { pattern: /^\S+$/, message: "密码不能包含空格", trigger: "blur" },
+  ],
+  num: [
+    { required: true, message: "请输入账号", trigger: "blur" },
+    { min: 4, max: 20, message: "账号长度应在 4-20 个字符", trigger: "blur" },
+    { pattern: /^[a-zA-Z0-9_]+$/, message: "账号仅支持字母、数字和下划线", trigger: "blur" },
+    { validator: validateNumUnique, trigger: "blur" },
+  ],
+  age: [
+    { required: true, message: "请输入年龄", trigger: "blur" },
+    { validator: validateAge, trigger: "blur" },
+  ],
+  sex: [
+    { required: true, message: "请选择性别", trigger: "change" },
+  ],
+  phone: [
+    { required: true, message: "请输入手机号", trigger: "blur" },
+    { pattern: /^1[3-9]\d{9}$/, message: "请输入有效的手机号", trigger: "blur" },
+  ],
+});
 </script>
+
 
 <style scoped>
 .toolbar {
