@@ -48,9 +48,9 @@
       </el-table-column>
       <el-table-column prop="phone" label="手机号" min-width="180" />
       <el-table-column label="操作" min-width="160">
-        <template #default>
-          <el-button size="small" type="primary">编辑</el-button>
-          <el-button size="small" type="danger">删除</el-button>
+        <template #default="{ row }">
+          <el-button size="small" type="primary" @click="modUser(row)">编辑</el-button>
+          <el-button size="small" type="danger" @click="delUser(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -70,12 +70,12 @@
 
     <el-dialog
       v-model="centerDialogVisible"
-      title="新增用户"
+      :title="dialogTitle"
       width="500"
       align-center="true"
       @closed="resetForm"
     >
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="auto" style="max-width: 500px">
+    <el-form ref="formRef" :model="form" :rules="currentRules" label-width="auto" style="max-width: 500px;">
       <el-form-item label="账号" prop="num">
         <el-col :span="20">
           <el-input v-model="form.num" />
@@ -112,7 +112,7 @@
           <div class="dialog-footer">
             <el-button @click="centerDialogVisible = false">取消</el-button>
             <el-button type="primary" @click="save">
-              确认
+              {{ isEditMode ? "保存" : "确认" }}
             </el-button>
           </div>
         </template>
@@ -122,10 +122,10 @@
 
 <script lang="ts" setup>
 import axios from "axios";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
 import type { ComponentSize, FormInstance, FormRules } from "element-plus";
-import { nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 
 interface UserRow {
   id: number | string;
@@ -133,6 +133,7 @@ interface UserRow {
   name: string;
   age: number | string;
   sex: string;
+  sexValue: "0" | "1";
   isMale: boolean;
   roleId: string;
   roleLabel: string;
@@ -153,9 +154,14 @@ const background = ref(false);
 const disabled = ref(false);
 
 const centerDialogVisible = ref(false);
+const isEditMode = ref(false);
+const editingId = ref<number | string | undefined>(undefined);
+const originalNum = ref("");
 const formRef = ref<FormInstance>();
+const dialogTitle = computed(() => (isEditMode.value ? "编辑用户" : "新增用户"));
 
 interface RuleForm {
+  id: number | string | undefined;
   name: string;
   num: string;
   password: string;
@@ -166,6 +172,7 @@ interface RuleForm {
 }
 
 const createInitialForm = (): RuleForm => ({
+  id: undefined,
   name: "",
   num: "",
   password: "",
@@ -199,6 +206,7 @@ const mapUserRow = (item: Record<string, any>): UserRow => {
   const sexRawStr = String(sexRaw ?? "").toLowerCase();
   const isMale =
     sexRawStr === "0" || sexRawStr === "male" || sexRawStr === "m" || String(sexRaw ?? "") === "男";
+  const sexValue = String(sexRaw) === "1" ? "1" : "0";
 
   const sex = String(sexRaw) === "1" ? "女" : String(sexRaw) === "0" ? "男" : String(sexRaw ?? "");
 
@@ -208,6 +216,7 @@ const mapUserRow = (item: Record<string, any>): UserRow => {
     name: String(item.name ?? item.realName ?? ""),
     age: item.age ?? "",
     sex,
+    sexValue,
     isMale,
     roleId,
     roleLabel,
@@ -265,6 +274,9 @@ const handleSearch = () => {
 };
 
 const handleAdd = () => {
+  isEditMode.value = false;
+  editingId.value = undefined;
+  originalNum.value = "";
   centerDialogVisible.value = true;
   nextTick(() => {
     resetForm();
@@ -292,13 +304,70 @@ const save = async () => {
   }
 
   try {
-    await axios.post("http://localhost:8090/user/save", { ...form });
-    ElMessage.success("新增用户成功");
+    const payload: Record<string, unknown> = { ...form };
+    if (!payload.password) {
+      delete payload.password;
+    }
+
+    if (isEditMode.value) {
+      payload.id = editingId.value;
+      await axios.post("http://localhost:8090/user/mod", payload);
+      ElMessage.success("编辑用户成功");
+    } else {
+      await axios.post("http://localhost:8090/user/save", payload);
+      ElMessage.success("新增用户成功");
+    }
     centerDialogVisible.value = false;
     fetchUserList();
   } catch (error) {
-    console.error("新增用户失败:", error);
-    ElMessage.error("新增用户失败，请检查后端服务是否启动");
+    console.error(isEditMode.value ? "编辑用户失败:" : "新增用户失败:", error);
+    ElMessage.error(isEditMode.value ? "编辑用户失败，请检查后端服务是否启动" : "新增用户失败，请检查后端服务是否启动");
+  }
+};
+//编辑用户
+const modUser = (row: UserRow) => {
+  isEditMode.value = true;
+  editingId.value = row.id;
+  originalNum.value = row.num;
+  centerDialogVisible.value = true;
+
+  nextTick(() => {
+    form.id = row.id;
+    form.name = row.name;
+    form.num = row.num;
+    form.password = "";
+    form.sex = row.sexValue;
+    form.age = String(row.age ?? "");
+    form.phone = row.phone;
+    form.roleId = row.roleId || "2";
+    formRef.value?.clearValidate();
+  });
+};
+//删除用户
+const delUser = async (row: UserRow) => {
+  try {
+    await ElMessageBox.confirm(`确认删除用户「${row.name || row.num}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "确认删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+
+  try {
+    await axios.get("http://localhost:8090/user/delete", {
+      params: { id: row.id },
+    });
+    ElMessage.success("删除用户成功");
+
+    if (tableData.value.length === 1 && pageNum.value > 1) {
+      pageNum.value -= 1;
+    }
+    fetchUserList();
+  } catch (error) {
+    console.error("删除用户失败:", error);
+    ElMessage.error("删除用户失败，请检查后端服务是否启动");
   }
 };
 
@@ -328,6 +397,11 @@ const validateNumUnique = (
   callback: (error?: Error) => void,
 ) => {
   if (!value) {
+    callback();
+    return;
+  }
+
+  if (isEditMode.value && value.trim() === originalNum.value.trim()) {
     callback();
     return;
   }
@@ -376,15 +450,10 @@ const validateNumUnique = (
 };
 
 // 表单验证规则
-const rules = reactive<FormRules<RuleForm>>({
+const baseRules: FormRules<RuleForm> = {
   name: [
     { required: true, message: "请输入姓名", trigger: "blur" },
     { min: 2, max: 20, message: "姓名长度应在 2-20 个字符", trigger: "blur" },
-  ],
-  password: [
-    { required: true, message: "请输入密码", trigger: "blur" },
-    { min: 6, max: 20, message: "密码长度应在 6-20 个字符", trigger: "blur" },
-    { pattern: /^\S+$/, message: "密码不能包含空格", trigger: "blur" },
   ],
   num: [
     { required: true, message: "请输入账号", trigger: "blur" },
@@ -403,7 +472,26 @@ const rules = reactive<FormRules<RuleForm>>({
     { required: true, message: "请输入手机号", trigger: "blur" },
     { pattern: /^1[3-9]\d{9}$/, message: "请输入有效的手机号", trigger: "blur" },
   ],
+};
+
+const addRules = reactive<FormRules<RuleForm>>({
+  ...baseRules,
+  password: [
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 6, max: 20, message: "密码长度应在 6-20 个字符", trigger: "blur" },
+    { pattern: /^\S+$/, message: "密码不能包含空格", trigger: "blur" },
+  ],
 });
+
+const editRules = reactive<FormRules<RuleForm>>({
+  ...baseRules,
+  password: [
+    { min: 6, max: 20, message: "密码长度应在 6-20 个字符", trigger: "blur" },
+    { pattern: /^\S+$/, message: "密码不能包含空格", trigger: "blur" },
+  ],
+});
+
+const currentRules = computed(() => (isEditMode.value ? editRules : addRules));
 </script>
 
 
