@@ -6,7 +6,8 @@
       default-active="/Home"
       :collapse="isCollapse"
       collaps-transition="false"
-      style="height: 100vh;">
+      style="height: 100vh;"
+      router>
       <el-menu-item index="/Home">
         <el-icon><House /></el-icon>
         <span>首页</span>
